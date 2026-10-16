@@ -13,7 +13,7 @@ HUB=${BEND_HUB:-https://hub.bend-lang.com}
 for pkg in text-scan:scan byte-words:words crc32:crc32 raylib:raylib bendquest:kernel \
   xml-doc:xml bytes:bytes image:image coverage:cover deflate:deflate ustar:ustar \
   css-style:css png-decode:png jpeg-decode:jpeg truetype:font gzip-frame:gzip \
-  svg-render:svg; do
+  svg-render:svg http-core:http http-server:server; do
   dir=${pkg%%:*}
   name=gralha-$dir@$VERSION
   if curl -fs "$HUB/name/$name" > /dev/null; then

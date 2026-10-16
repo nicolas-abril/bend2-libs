@@ -1,0 +1,37 @@
+HTTP/1.1 200 OK
+Content-Type: text/plain
+Connection: close
+Content-Length: 7
+
+hello 0
+HTTP/1.1 200 OK
+Content-Type: text/plain; charset=utf-8
+X-Count: 1
+Connection: close
+Content-Length: 11
+
+héllo body
+HTTP/1.1 200 OK
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 13
+
+café au lait
+HTTP/1.1 404 Not Found
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 9
+
+Not Found
+HTTP/1.1 400 Bad Request
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 11
+
+Bad Request
+HTTP/1.1 200 OK
+Content-Length: 3
+Connection: close
+
+raw
+served 5

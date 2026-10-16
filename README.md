@@ -5,6 +5,7 @@ the `gralha-` prefix, taken apart from three demos:
 [bend2-svg-demo](https://github.com/nicolas-abril/bend2-svg-demo),
 [bend2-tar-demo](https://github.com/nicolas-abril/bend2-tar-demo) and
 [bend2-bendquest-demo](https://github.com/nicolas-abril/bend2-bendquest-demo).
+The HTTP pair generalizes the svg demo's server.
 Each directory is one package, imported as
 `import gralha-<dir>@<version>/<entry>.bend as Name`. They need Bend 2.0.37
 or newer. Each package's README covers its API.
@@ -28,6 +29,8 @@ or newer. Each package's README covers its API.
 | `gralha-ustar` | `ustar.bend` | byte-words | ustar headers, archive streams and listing |
 | `gralha-raylib` | `raylib.bend` | | a raylib binding (C only) |
 | `gralha-bendquest` | `kernel.bend` | | BendQuest's proof-carrying rules kernel |
+| `gralha-http-core` | `http.bend` | | HTTP/1.1 request parsing and response serialization, pure |
+| `gralha-http-server` | `server.bend` | http-core | an HTTP/1.1 server loop over Base's TCP |
 
 `<dir>/tests/` holds each package's checks; they are not published. A
 package's C and JS effect files live in `<dir>/effs/` and are published with
