@@ -31,7 +31,8 @@ or newer. Each package's README covers its API.
 
 `<dir>/tests/` holds each package's checks; they are not published. A
 package's C and JS effect files live in `<dir>/effs/` and are published with
-it. Publish a package after the ones it depends on:
-`bend <entry> --publish gralha-<dir>@<version>`.
+it. `./publish.sh` publishes and names, in dependency order, every package
+not yet named on the hub; BendHub registers five new names per account a
+day, so it may take more than one run.
 
 Licensed under MIT (`LICENSE`, copied into every package).
