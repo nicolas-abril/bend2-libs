@@ -47,14 +47,14 @@ def read(socket: Socket, +max: U32) -> IO(Socket & Maybe<&2, Http.Request>):
 # =======
 
 # A failed send also hands back the unsent rest, which a closing reply drops.
-def send.done(got: Socket & Result<&1, &1, (U32 & String) & String, Unit>) -> IO(Unit):
+def send.done(got: Socket & Result<&1, &1, (U32 & String) & List<&2, U32>, Unit>) -> IO(Unit):
   (socket, result) = got
   Socket.close(socket)
 
 # Sends text as it is and closes the socket.
 def send.text(socket: Socket, text: String) -> IO(Unit):
   do IO<Unit>:
-    sent : Socket & Result<&1, &1, (U32 & String) & String, Unit> <- TCP.send(socket, text)
+    sent : Socket & Result<&1, &1, (U32 & String) & List<&2, U32>, Unit> <- TCP.send(socket, text)
     send.done(sent)
 
 # The response with Connection: close, unless it names a Connection.
