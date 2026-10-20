@@ -8,7 +8,8 @@ the `gralha-` prefix, taken apart from three demos:
 The HTTP pair generalizes the svg demo's server.
 Each directory is one package, imported as
 `import gralha-<dir>@<version>/<entry>.bend as Name`. They need Bend 2.0.37
-or newer. Each package's README covers its API.
+or newer; `gralha-http-server` needs a Bend after bendlang/bend#1765, whose
+`TCP.send` hands back unsent bytes. Each package's README covers its API.
 
 | Package | Entry | Depends on | What |
 | --- | --- | --- | --- |
