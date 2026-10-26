@@ -1,6 +1,6 @@
 # Premultiplied colors and quadtree pixel buffers shared by the decoders and the renderer.
 import Base
-import gralha-text-scan@0.1.0.0/scan.bend as U
+import gralha-text-scan@0.1.0.1/scan.bend as U
 
 type Color is Data:
   Color{r: F32, g: F32, b: F32, a: F32}

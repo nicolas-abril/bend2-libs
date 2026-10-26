@@ -1,6 +1,6 @@
 import Base
 import ../svg.bend as SVG
-import gralha-xml-doc@0.1.0.0/xml.bend as XML
+import gralha-xml-doc@0.1.0.1/xml.bend as XML
 
 # The final filter region clips each pixel by its covered fraction; a primitive
 # subregion still includes every pixel it touches.

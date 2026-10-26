@@ -1,6 +1,6 @@
 import Base
 import ../svg.bend as SVG
-import gralha-xml-doc@0.1.0.0/xml.bend as XML
+import gralha-xml-doc@0.1.0.1/xml.bend as XML
 
 def run(source: String) -> IO(Unit):
   IO.print(U32.show(SVG.pixel(SVG.prepare.scenes(SVG.document(XML.parse("<svg width='16' height='16'>" ++ source ++ "</svg>"), 16.0, 16.0), SVG.identity(), 1), 8, 8, 1)))

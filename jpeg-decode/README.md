@@ -3,7 +3,7 @@
 JPEG decoder: baseline and progressive Huffman, restart markers, grayscale,
 RGB, YCbCr and Adobe CMYK/YCCK, producing a `gralha-image` picture.
 
-    import gralha-jpeg-decode@0.1.0.0/jpeg.bend as JPEG
+    import gralha-jpeg-decode@0.1.0.1/jpeg.bend as JPEG
 
 Main entry point: `jpeg.decode`.
 

@@ -3,7 +3,7 @@
 # rule holds even where contours overlap), and the result is a sparse quadtree
 # mask.
 import Base
-import gralha-text-scan@0.1.0.0/scan.bend as U
+import gralha-text-scan@0.1.0.1/scan.bend as U
 
 # A directed line in pixel coordinates of the target grid.
 type CovLine is Data:

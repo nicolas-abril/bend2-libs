@@ -1,6 +1,6 @@
 # XML: tokens, element tree, entities, attributes and serialization.
 import Base
-import gralha-text-scan@0.1.0.0/scan.bend as U
+import gralha-text-scan@0.1.0.1/scan.bend as U
 
 # Reverse a scan's accumulator while decoding XML entities: the reversed
 # text shows an entity as its ';' first, then its name backwards, then '&';

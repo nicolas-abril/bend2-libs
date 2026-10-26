@@ -1,6 +1,6 @@
 import Base
 import ../svg.bend as SVG
-import gralha-xml-doc@0.1.0.0/xml.bend as XML
+import gralha-xml-doc@0.1.0.1/xml.bend as XML
 
 def drawing(kind: String) -> List<&2, SVG.Scene<SVG.Brush>>:
   SVG.document(XML.parse("<svg><defs><mask id='m' mask-type='" ++ kind ++ "'><rect width='16' height='32' fill='white'/><rect x='16' width='16' height='32' fill='black'/></mask></defs><rect width='32' height='32' fill='red' mask='url(#m)'/></svg>"), 64.0, 64.0)

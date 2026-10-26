@@ -1,6 +1,6 @@
 import Base
 import ../svg.bend as SVG
-import gralha-image@0.1.0.0/image.bend as Img
+import gralha-image@0.1.0.1/image.bend as Img
 
 def show(c: Img.Color) -> String:
   Img.Color{r, g, b, a} = c

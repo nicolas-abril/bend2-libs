@@ -1,9 +1,9 @@
 import Base
 import ../svg.bend as SVG
-import gralha-text-scan@0.1.0.0/scan.bend as U
-import gralha-bytes@0.1.0.0/bytes.bend as Bin
-import gralha-image@0.1.0.0/image.bend as Img
-import gralha-png-decode@0.1.0.0/png.bend as PNG
+import gralha-text-scan@0.1.0.1/scan.bend as U
+import gralha-bytes@0.1.0.1/bytes.bend as Bin
+import gralha-image@0.1.0.1/image.bend as Img
+import gralha-png-decode@0.1.0.1/png.bend as PNG
 
 def close(+a: F32, b: F32) -> Bool:
   F32.is_lt(F32.abs((a - b : F32)), 0.00002)

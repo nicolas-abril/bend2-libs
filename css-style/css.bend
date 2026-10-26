@@ -1,7 +1,7 @@
 # CSS: stylesheets, selectors, specificity, media queries and the cascade onto an XML tree.
 import Base
-import gralha-text-scan@0.1.0.0/scan.bend as U
-import gralha-xml-doc@0.1.0.0/xml.bend as XML
+import gralha-text-scan@0.1.0.1/scan.bend as U
+import gralha-xml-doc@0.1.0.1/xml.bend as XML
 
 def css.lower(s: String) -> String:
   match s:

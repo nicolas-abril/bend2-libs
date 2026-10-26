@@ -1,7 +1,7 @@
 import Base
 import ../svg.bend as SVG
-import gralha-xml-doc@0.1.0.0/xml.bend as XML
-import gralha-truetype@0.1.0.0/font.bend as Font
+import gralha-xml-doc@0.1.0.1/xml.bend as XML
+import gralha-truetype@0.1.0.1/font.bend as Font
 
 def main() -> IO(Unit):
   +book = Font.font.parse("g|0:65|600 1 1 0|M0 0H500V700H0Z\ng|0:66|600 2 0 1|M0 0H500V700H0Z\ng|0:32|300 3 0 0|\nk|0:16781314|-100\nk|0:129|-50\n", Font.font.empty())

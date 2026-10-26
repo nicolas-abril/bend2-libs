@@ -1,6 +1,6 @@
 import Base
 import ../svg.bend as SVG
-import gralha-xml-doc@0.1.0.0/xml.bend as XML
+import gralha-xml-doc@0.1.0.1/xml.bend as XML
 
 def id(p: SVG.Pick) -> String:
   SVG.Pick{found, name, inv} = p

@@ -1,6 +1,6 @@
 import Base
 import ../svg.bend as SVG
-import gralha-xml-doc@0.1.0.0/xml.bend as XML
+import gralha-xml-doc@0.1.0.1/xml.bend as XML
 
 def check(+filter: String, +extra: String, +x: U32, +y: U32) -> String:
   nodes = SVG.prepare.scenes(SVG.document(XML.parse("<svg width='16' height='16'><defs><filter id='f' filterUnits='userSpaceOnUse' x='0' y='0' width='16' height='16' color-interpolation-filters='sRGB'>" ++ filter ++ "</filter></defs><rect x='2' y='2' width='6' height='6' fill='red' filter='url(#f)' " ++ extra ++ "/></svg>"), 16.0, 16.0), SVG.identity(), 1)

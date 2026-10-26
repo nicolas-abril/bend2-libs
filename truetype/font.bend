@@ -1,7 +1,7 @@
 # Font book: glyph outlines, advances, kerning and metrics.
 import Base
-import gralha-text-scan@0.1.0.0/scan.bend as U
-import gralha-bytes@0.1.0.0/bytes.bend as Bin
+import gralha-text-scan@0.1.0.1/scan.bend as U
+import gralha-bytes@0.1.0.1/bytes.bend as Bin
 
 type TTFont is Data:
   TTFont{glyf: U32, loca: U32, long: Bool, hmtx: U32, metrics: U32, glyphs: U32, units: F32}

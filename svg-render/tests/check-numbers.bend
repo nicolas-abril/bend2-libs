@@ -1,6 +1,6 @@
 import Base
 import ../svg.bend as SVG
-import gralha-text-scan@0.1.0.0/scan.bend as U
+import gralha-text-scan@0.1.0.1/scan.bend as U
 
 def valid(n: U.Number) -> U32:
   U.Number{x, tail, ok} = n

@@ -7,7 +7,7 @@ rasterization to RGB pixels. Its output matches the reference fixtures of
 [bend2-svg-demo](https://github.com/nicolas-abril/bend2-svg-demo), which
 uses it as its renderer.
 
-    import gralha-svg-render@0.1.0.0/svg.bend as SVG
+    import gralha-svg-render@0.1.0.1/svg.bend as SVG
 
 Main entry points: `document.fitted.fonts` and `paint.packed` (a parsed
 `gralha-xml-doc` element to packed RGB pixels), `document`, `pixel`,

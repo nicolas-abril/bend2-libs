@@ -1,14 +1,14 @@
 # SVG parsing, geometry, painting and rasterization. No foreign code.
 import Base
-import gralha-text-scan@0.1.0.0/scan.bend as U
-import gralha-xml-doc@0.1.0.0/xml.bend as XML
-import gralha-css-style@0.1.0.0/css.bend as CSS
-import gralha-bytes@0.1.0.0/bytes.bend as Bin
-import gralha-image@0.1.0.0/image.bend as Img
-import gralha-png-decode@0.1.0.0/png.bend as PNG
-import gralha-jpeg-decode@0.1.0.0/jpeg.bend as JPEG
-import gralha-coverage@0.1.0.0/cover.bend as Cov
-import gralha-truetype@0.1.0.0/font.bend as Font
+import gralha-text-scan@0.1.0.1/scan.bend as U
+import gralha-xml-doc@0.1.0.1/xml.bend as XML
+import gralha-css-style@0.1.0.1/css.bend as CSS
+import gralha-bytes@0.1.0.1/bytes.bend as Bin
+import gralha-image@0.1.0.1/image.bend as Img
+import gralha-png-decode@0.1.0.1/png.bend as PNG
+import gralha-jpeg-decode@0.1.0.1/jpeg.bend as JPEG
+import gralha-coverage@0.1.0.1/cover.bend as Cov
+import gralha-truetype@0.1.0.1/font.bend as Font
 
 def length.go(s: String, acc: U32) -> U32:
   match s:

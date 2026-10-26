@@ -1,7 +1,7 @@
 import Base
 import ../svg.bend as SVG
-import gralha-xml-doc@0.1.0.0/xml.bend as XML
-import gralha-truetype@0.1.0.0/font.bend as Font
+import gralha-xml-doc@0.1.0.1/xml.bend as XML
+import gralha-truetype@0.1.0.1/font.bend as Font
 
 def offset(+book: Font.FontBook, +face: String, +kind: String) -> String:
   F32.show(SVG.text.baseline(SVG.text.font.inherit(SVG.text.font.default(book), Con{XML.Attr{"font-size", "8"}, Con{XML.Attr{"font-weight", face}, Con{XML.Attr{"baseline-shift", kind}, Nil{}}}})))

@@ -1,6 +1,6 @@
 import Base
 import ../svg.bend as SVG
-import gralha-xml-doc@0.1.0.0/xml.bend as XML
+import gralha-xml-doc@0.1.0.1/xml.bend as XML
 
 def main() -> IO(Unit):
   +drawing = XML.parse("<svg><style><![CDATA[@import url('unused.css'); rect{fill:red}@media screen and (min-width:60px){rect{fill:blue}}@media print{rect{fill:lime}}]]></style><rect width='64' height='64'/></svg>")

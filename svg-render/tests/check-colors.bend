@@ -1,7 +1,7 @@
 import Base
 import ../svg.bend as SVG
-import gralha-xml-doc@0.1.0.0/xml.bend as XML
-import gralha-image@0.1.0.0/image.bend as Img
+import gralha-xml-doc@0.1.0.1/xml.bend as XML
+import gralha-image@0.1.0.1/image.bend as Img
 
 def show(s: String) -> IO(Unit):
   IO.print(U32.show(SVG.color.pack(SVG.color.over(SVG.color(s), Img.rgba(1.0, 1.0, 1.0, 1.0)))))

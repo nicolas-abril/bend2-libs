@@ -1,7 +1,7 @@
 import Base
 import ../svg.bend as SVG
-import gralha-text-scan@0.1.0.0/scan.bend as U
-import gralha-xml-doc@0.1.0.0/xml.bend as XML
+import gralha-text-scan@0.1.0.1/scan.bend as U
+import gralha-xml-doc@0.1.0.1/xml.bend as XML
 
 def many(n: Nat, +word: String, acc: String) -> String:
   match n:

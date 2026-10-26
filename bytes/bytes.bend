@@ -1,6 +1,6 @@
 # Bytes, bit streams, Huffman codes, DEFLATE/zlib, checksums, base64 and percent decoding.
 import Base
-import gralha-text-scan@0.1.0.0/scan.bend as U
+import gralha-text-scan@0.1.0.1/scan.bend as U
 
 # A Bytes is a persistent byte buffer: a balanced tree over a power-of-two capacity.
 # A flat leaf is one value per index (decoders keep whole words in a Bytes, and

@@ -5,7 +5,7 @@ streams, Huffman codes, DEFLATE/zlib inflate, Adler-32 and CRC-32, base64 and
 percent decoding, and `bytes.read`, a foreign effect (C and JS) that reads a
 whole file straight into a `Bytes`.
 
-    import gralha-bytes@0.1.0.0/bytes.bend as Bin
+    import gralha-bytes@0.1.0.1/bytes.bend as Bin
 
 Main entry points: `bytes.read`, `bytes.get`, `bytes.set`, `bytes.push`,
 `bytes.size`, `bytes.be`, `base64`, `inflate.blocks`, `zlib.result`,

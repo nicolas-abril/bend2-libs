@@ -1,7 +1,7 @@
 import Base
 import ../svg.bend as SVG
-import gralha-text-scan@0.1.0.0/scan.bend as U
-import gralha-bytes@0.1.0.0/bytes.bend as Bin
+import gralha-text-scan@0.1.0.1/scan.bend as U
+import gralha-bytes@0.1.0.1/bytes.bend as Bin
 
 def same(n: Nat, +at: U32, +a: Bin.Bytes, +b: Bin.Bytes) -> Bool:
   match n:

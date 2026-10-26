@@ -1,5 +1,5 @@
 import Base
-import gralha-text-scan@0.1.0.0/scan.bend as U
+import gralha-text-scan@0.1.0.1/scan.bend as U
 import ../cover.bend as Cov
 
 def square(+x0: F32, +y0: F32, +x1: F32, +y1: F32) -> List<&2, Cov.CovLine>:

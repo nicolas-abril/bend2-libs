@@ -1,6 +1,6 @@
 import Base
 import ../svg.bend as SVG
-import gralha-xml-doc@0.1.0.0/xml.bend as XML
+import gralha-xml-doc@0.1.0.1/xml.bend as XML
 
 def test(attrs: String, d: String, x: U32, y: U32) -> U32:
   source = {"<svg><path fill='none' stroke='black' stroke-width='6' " ++ attrs ++ " d='" ++ d ++ "'/></svg>" : String}

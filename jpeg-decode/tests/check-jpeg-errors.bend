@@ -1,7 +1,7 @@
 import Base
-import gralha-image@0.1.0.0/image.bend as Img
-import gralha-text-scan@0.1.0.0/scan.bend as U
-import gralha-bytes@0.1.0.0/bytes.bend as Bin
+import gralha-image@0.1.0.1/image.bend as Img
+import gralha-text-scan@0.1.0.1/scan.bend as U
+import gralha-bytes@0.1.0.1/bytes.bend as Bin
 import ../jpeg.bend as JPEG
 
 def empty(picture: Img.Picture) -> String:

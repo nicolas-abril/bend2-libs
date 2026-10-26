@@ -1,8 +1,8 @@
 # PNG decoder: chunks, filters, interlacing, palettes and bit depths.
 import Base
-import gralha-text-scan@0.1.0.0/scan.bend as U
-import gralha-bytes@0.1.0.0/bytes.bend as Bin
-import gralha-image@0.1.0.0/image.bend as Img
+import gralha-text-scan@0.1.0.1/scan.bend as U
+import gralha-bytes@0.1.0.1/bytes.bend as Bin
+import gralha-image@0.1.0.1/image.bend as Img
 
 type PNGInfo is Data:
   PNGInfo{width: U32, height: U32, depth: U32, kind: U32, interlace: U32, palette: Bin.Bytes, alpha: Bin.Bytes, compressed: Bin.Bytes, valid: Bool}

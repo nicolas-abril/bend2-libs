@@ -1,5 +1,5 @@
 import Base
-import gralha-text-scan@0.1.0.0/scan.bend as U
+import gralha-text-scan@0.1.0.1/scan.bend as U
 import ../bytes.bend as Bin
 
 # The size, first big-endian word and fifth byte of a binary fixture read through bytes.read.

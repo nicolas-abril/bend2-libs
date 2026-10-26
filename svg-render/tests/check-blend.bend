@@ -1,6 +1,6 @@
 import Base
 import ../svg.bend as SVG
-import gralha-text-scan@0.1.0.0/scan.bend as U
+import gralha-text-scan@0.1.0.1/scan.bend as U
 
 def close(+a: U32, +b: U32) -> Bool:
   U32.is_le(U.choose(U32, U32.is_ge(a, b), (a - b : U32), (b - a : U32)), 1)
