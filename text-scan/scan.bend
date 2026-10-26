@@ -37,17 +37,16 @@ def rev(s: String, acc: String) -> String:
     case SNil{}: acc
     case SCon{c, t}: rev(t, SCon{c, acc})
 
-# Consume equality inputs without rebuilding borrowed strings on the host stack.
-@unsafe
-def string.equal.go(same: Bool, a: String, b: String) -> Bool:
-  match same a b:
-    case False{} _ _: False{}
-    case True{} SNil{} SNil{}: True{}
-    case True{} SCon{Chr{x}, xs} SCon{Chr{y}, ys}: string.equal.go(U32.is_eq(x, y), xs, ys)
-    case True{} _ _: False{}
+# `same` says whether the characters before `a` and `b` matched: deciding
+# it one step ahead keeps the loop a tail call on the shrinking `a`.
+def string.equal.go(a: String, b: String, same: Bool) -> Bool:
+  match a b same:
+    case SNil{} SNil{} True{}: True{}
+    case SCon{Chr{x}, xs} SCon{Chr{y}, ys} True{}: string.equal.go(xs, ys, U32.is_eq(x, y))
+    case _ _ _: False{}
 
 def string.equal(a: String, b: String) -> Bool:
-  string.equal.go(True{}, a, b)
+  string.equal.go(a, b, True{})
 
 def branch(-A: Type, yes: Bool, a: Unit -> A, b: Unit -> A) -> A:
   match yes:
@@ -64,25 +63,23 @@ type Scan is Data:
   Scan{head: String, tail: String}
 
 # Scanning loops decide each character one step ahead (`hit` says whether
-# `c` ends the scan), so the rest of the text is only ever held once: a
-# shared tail would make every step pay for the sharing.
-@unsafe
-def until.go(hit: Bool, +c: U32, t: String, +end: U32, acc: String) -> Scan:
-  match hit:
-    case True{}: Scan{rev(acc, ""), t}
-    case False{}:
-      match t:
-        case SNil{}: Scan{rev(SCon{Chr{c}, acc}, ""), ""}
-        case SCon{Chr{c2}, t2}:
-          +cc = c2
-          until.go(U32.is_eq(cc, end), cc, t2, end, SCon{Chr{c}, acc})
+# `c`, the character before `t`, ends the scan), so the rest of the text is
+# only ever held once: a shared tail would make every step pay for the
+# sharing. The rest comes first, as the argument that shrinks.
+def until.go(t: String, hit: Bool, +c: U32, +end: U32, acc: String) -> Scan:
+  match t hit:
+    case t True{}: Scan{rev(acc, ""), t}
+    case SNil{} False{}: Scan{rev(SCon{Chr{c}, acc}, ""), ""}
+    case SCon{Chr{c2}, t2} False{}:
+      +cc = c2
+      until.go(t2, U32.is_eq(cc, end), cc, end, SCon{Chr{c}, acc})
 
 def until(s: String, +end: U32, acc: String) -> Scan:
   match s:
     case SNil{}: Scan{rev(acc, ""), ""}
     case SCon{Chr{c}, t}:
       +cc = c
-      until.go(U32.is_eq(cc, end), cc, t, end, acc)
+      until.go(t, U32.is_eq(cc, end), cc, end, acc)
 
 def prefix(s: String, p: String) -> Bool:
   match s p:
@@ -109,23 +106,23 @@ def until.sequence(+s: String, +end: String, +acc: String) -> Scan:
     case SCon{c, t}: branch(Scan, prefix(s, end), _ => Scan{rev(acc, ""), drop(s, end)}, _ => until.sequence(t, end, SCon{c, acc}))
 
 # SVG number grammar, including adjacent signs and scientific notation.
-@unsafe
-def separators.go(skip: Bool, +c: U32, t: String) -> String:
-  match skip:
-    case False{}: SCon{Chr{c}, t}
-    case True{}:
-      match t:
-        case SNil{}: ""
-        case SCon{Chr{c2}, t2}:
-          +cc = c2
-          separators.go(space(cc) || U32.is_eq(cc, 44), cc, t2)
+def separator(+c: U32) -> Bool:
+  space(c) || U32.is_eq(c, 44)
+
+def separators.go(t: String, skip: Bool, +c: U32) -> String:
+  match t skip:
+    case t False{}: SCon{Chr{c}, t}
+    case SNil{} True{}: ""
+    case SCon{Chr{c2}, t2} True{}:
+      +cc = c2
+      separators.go(t2, separator(cc), cc)
 
 def separators(s: String) -> String:
   match s:
     case SNil{}: ""
     case SCon{Chr{c}, t}:
       +cc = c
-      separators.go(space(cc) || U32.is_eq(cc, 44), cc, t)
+      separators.go(t, separator(cc), cc)
 
 def number.exponent(+s: String) -> Bool:
   match s:
@@ -141,12 +138,12 @@ type Number is Data:
 # A number is read straight into a float: digits accumulate the mantissa
 # (fraction digits also scale a divisor), an exponent accumulates its own
 # digits, and a sign is taken where it may appear. Nothing is copied into a
-# scratch string. The head is split off and classified one step ahead so
-# the loop branches on parameters: class 0 digit, 1 dot, 2 exponent mark,
-# 3 sign, 4 anything else; stage 0 start, 1 mantissa, 2 fraction, 3 after
-# the mark, 4 exponent digits. An exponent mark that no digit follows is
-# not part of the number (as in "1em"), so the string from the mark is
-# kept to be the tail in that case.
+# scratch string. Each character is classified one step ahead, so the loop
+# branches on parameters: class 0 digit, 1 dot, 2 exponent mark, 3 sign,
+# 4 anything else; stage 0 start, 1 mantissa, 2 fraction, 3 after the
+# mark, 4 exponent digits. An exponent mark that no digit follows is not
+# part of the number (as in "1em"), so `mark` keeps what was read from the
+# mark on (the mark and any signs, reversed) to give back in that case.
 def number.class(+c: U32) -> U32:
   choose(U32, digit(c), 0, choose(U32, U32.is_eq(c, 46), 1,
     choose(U32, U32.is_eq(c, 101) || U32.is_eq(c, 69), 2,
@@ -158,67 +155,58 @@ def number.accepts(+k: U32, +stage: U32, +digits: Bool) -> Bool:
       choose(Bool, U32.is_eq(k, 2), digits && U32.is_lt(stage, 3),
         choose(Bool, U32.is_eq(k, 3), U32.is_eq(stage, 0) || U32.is_eq(stage, 3), False{}))))
 
+def number.stage(+k: U32, +stage: U32) -> U32:
+  choose(U32, U32.is_eq(k, 0), choose(U32, U32.is_eq(stage, 0), 1, choose(U32, U32.is_eq(stage, 3), 4, stage)),
+    choose(U32, U32.is_eq(k, 1), 2, choose(U32, U32.is_eq(k, 2), 3, stage)))
+
+def number.mark(keep: Bool, +c: U32, mark: String) -> String:
+  match keep:
+    case True{}: SCon{Chr{c}, mark}
+    case False{}: mark
+
 def number.pow10(n: Nat, +acc: F32) -> F32:
   match n:
     case 0n: acc
     case 1n+d: number.pow10(d, (acc * 10.0 : F32))
 
-# The value from the parts; `rest` is the string from the stop, `mark` the
-# string from an exponent mark that turned out not to belong.
+def number.tail(dangling: Bool, mark: String, rest: String) -> String:
+  match dangling:
+    case True{}: rev(mark, rest)
+    case False{}: rest
+
+# The value from the parts; `rest` is the string from the stop.
 def number.finish(rest: String, mark: String, +stage: U32, +sign: F32, +mant: F32, +div: F32, +esign: F32, +ev: U32, +digits: Bool, +edigits: Bool) -> Number:
   +dangling = U32.is_ge(stage, 3) && Bool.not(edigits)
   +scale = number.pow10(U32.to_nat(choose(U32, dangling, 0, ev)), 1.0)
   +v = (sign * mant / choose(F32, F32.is_gt(div, 0.0), div, 1.0) : F32)
-  Number{choose(F32, F32.is_lt(esign, 0.0), (v / scale : F32), (v * scale : F32)), choose(String, dangling, mark, rest), digits}
+  Number{choose(F32, F32.is_lt(esign, 0.0), (v / scale : F32), (v * scale : F32)), number.tail(dangling, mark, rest), digits}
 
-# The next step's head, split off and classified, with the mark to carry
-# (the string from the exponent mark when the last step was at one).
-type Head is Data:
-  Head{end: Bool, ok: Bool, k: U32, c: U32, mark: String, t: String}
-
-def number.split.at(t: String, mark: String, +stage: U32, +digits: Bool) -> Head:
-  match t:
-    case SNil{}: Head{True{}, False{}, 4, 0, mark, ""}
-    case SCon{Chr{c}, t2}:
-      +cc = c
+# `c` is the character before `t`; `ok` says whether it was read, and the
+# parts are the ones after it. The next character is read when the stage
+# accepts it, and otherwise the parts are kept and the number stops there.
+def number.go(t: String, ok: Bool, +c: U32, mark: String, +stage: U32, +sign: F32, +mant: F32, +div: F32, +esign: F32, +ev: U32, +digits: Bool, +edigits: Bool) -> Number:
+  match t ok:
+    case t False{}: number.finish(SCon{Chr{c}, t}, mark, stage, sign, mant, div, esign, ev, digits, edigits)
+    case SNil{} True{}: number.finish("", mark, stage, sign, mant, div, esign, ev, digits, edigits)
+    case SCon{Chr{c2}, t2} True{}:
+      +cc = c2
       +k = number.class(cc)
-      Head{False{}, number.accepts(k, stage, digits), k, cc, mark, t2}
+      +read = number.accepts(k, stage, digits)
+      +isDigit = read && U32.is_eq(k, 0)
+      +inExp = U32.is_ge(stage, 3)
+      +minus = read && U32.is_eq(k, 3) && U32.is_eq(cc, 45)
+      +stage2 = choose(U32, read, number.stage(k, stage), stage)
+      number.go(t2, read, cc, number.mark(read && U32.is_eq(stage2, 3), cc, mark), stage2,
+        choose(F32, minus && U32.is_eq(stage, 0), F32.neg(1.0), sign),
+        choose(F32, isDigit && Bool.not(inExp), (mant * 10.0 + U32.to_f32((cc - 48 : U32)) : F32), mant),
+        choose(F32, isDigit && U32.is_eq(stage, 2), (div * 10.0 : F32), choose(F32, read && U32.is_eq(k, 1), 1.0, div)),
+        choose(F32, minus && U32.is_eq(stage, 3), F32.neg(1.0), esign),
+        choose(U32, isDigit && inExp, (ev * 10 + cc - 48 : U32), ev),
+        digits || (isDigit && Bool.not(inExp)), edigits || (isDigit && inExp))
 
-def number.split(atMark: Bool, +c: U32, t: String, mark: String, +stage: U32, +digits: Bool) -> Head:
-  match atMark:
-    case False{}: number.split.at(t, mark, stage, digits)
-    case True{}:
-      +tt = t
-      number.split.at(tt, SCon{Chr{c}, tt}, stage, digits)
-
-@unsafe
-def number.go(h: Head, +stage: U32, +sign: F32, +mant: F32, +div: F32, +esign: F32, +ev: U32, +digits: Bool, +edigits: Bool) -> Number:
-  match h:
-    case Head{end, ok, k, c, mark, t}:
-      match end:
-        case True{}: number.finish("", mark, stage, sign, mant, div, esign, ev, digits, edigits)
-        case False{}:
-          match ok:
-            case False{}: number.finish(SCon{Chr{c}, t}, mark, stage, sign, mant, div, esign, ev, digits, edigits)
-            case True{}:
-              +kk = k
-              +cc = c
-              +isDigit = U32.is_eq(kk, 0)
-              +inExp = U32.is_ge(stage, 3)
-              +minus = U32.is_eq(cc, 45)
-              +stage2 = choose(U32, isDigit, choose(U32, U32.is_eq(stage, 0), 1, choose(U32, U32.is_eq(stage, 3), 4, stage)),
-                choose(U32, U32.is_eq(kk, 1), 2, choose(U32, U32.is_eq(kk, 2), 3, stage)))
-              +digits2 = digits || (isDigit && Bool.not(inExp))
-              number.go(number.split(U32.is_eq(kk, 2), cc, t, mark, stage2, digits2), stage2,
-                choose(F32, U32.is_eq(kk, 3) && U32.is_eq(stage, 0) && minus, F32.neg(1.0), sign),
-                choose(F32, isDigit && Bool.not(inExp), (mant * 10.0 + U32.to_f32((cc - 48 : U32)) : F32), mant),
-                choose(F32, isDigit && U32.is_eq(stage, 2), (div * 10.0 : F32), choose(F32, U32.is_eq(kk, 1), 1.0, div)),
-                choose(F32, U32.is_eq(kk, 3) && U32.is_eq(stage, 3) && minus, F32.neg(1.0), esign),
-                choose(U32, isDigit && inExp, (ev * 10 + cc - 48 : U32), ev),
-                digits2, edigits || (isDigit && inExp))
-
+# The loop starts as if after a character that was read, with nothing yet.
 def number(s: String) -> Number:
-  number.go(number.split.at(separators(s), "", 0, False{}), 0, 1.0, 0.0, 0.0, 1.0, 0, False{}, False{})
+  number.go(separators(s), True{}, 0, "", 0, 1.0, 0.0, 0.0, 1.0, 0, False{}, False{})
 
 def number.default(num: Number, fallback: F32) -> F32:
   Number{x, t, valid} = num
@@ -231,9 +219,15 @@ def numbers.next(num: Number, next: String -> List<&2, F32>) -> List<&2, F32>:
   Number{x, t, valid} = num
   choose(Unit -> List<&2, F32>, valid, _ => Con{x, next(t)}, _ => Nil{})(Unit{})
 
-@unsafe
-def numbers(s: String) -> List<&2, F32>:
-  numbers.next(number(s), t => numbers(t))
+# Every number read takes at least one character (a digit), so the text's
+# length bounds how many there are.
+def numbers.go(fuel: Nat, s: String) -> List<&2, F32>:
+  match fuel:
+    case 0n: Nil{}
+    case 1n+f: numbers.next(number(s), t => numbers.go(f, t))
+
+def numbers(+s: String) -> List<&2, F32>:
+  numbers.go(String.length(s), s)
 
 def nth(xs: List<&2, F32>, i: Nat, fallback: F32) -> F32:
   match xs i:
