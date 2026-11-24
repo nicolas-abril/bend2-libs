@@ -5,7 +5,7 @@
 import Base
 import gralha-byte-words@0.1.0.0/words.bend as Words
 import gralha-crc32@0.1.0.0/crc32.bend as Crc32
-import gralha-deflate@0.1.0.0/deflate.bend as Deflate
+import gralha-deflate@0.1.0.1/deflate.bend as Deflate
 
 def pick(c: Bool, a: U32, b: U32) -> U32:
   match c:

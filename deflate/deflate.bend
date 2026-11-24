@@ -814,10 +814,6 @@ def rev_bits(n: Nat, +c: U32, +acc: U32) -> U32:
     case 1n+p:
       rev_bits(p, (c >> 1n : U32), ((acc << 1n) .|. (c .&. 1) : U32))
 
-# a Huffman code goes most significant bit first
-def bw_code(st: Bw, +code: U32, +k: U32) -> Bw:
-  bw_put(st, rev_bits(U32.to_nat(k), code, 0), k)
-
 def bw_last(ob: Words.Sink, +buf: U32, some: Bool) -> Words.Sink:
   match some:
     case True{}:
@@ -844,17 +840,6 @@ def extra_of(dist: Bool, +c: U32) -> U32:
       dist_extra(c)
     case False{}:
       len_extra(c)
-
-# the code index for a length or a distance: the last base <= v; stop
-# says the next base is already past v
-def code_of(n: Nat, +v: U32, +c: U32, stop: Bool, +dist: Bool) -> U32:
-  match n, stop:
-    case k, True{}:
-      c
-    case 0n, False{}:
-      c
-    case 1n+p, False{}:
-      code_of(p, v, (c + 1 : U32), U32.is_lt(v, base_of(dist, (c + 2 : U32))), dist)
 
 # Tokens
 # ------
@@ -897,8 +882,12 @@ def ts_len(st: Ts, +len: U32, +dist: U32) -> Ts & Bool:
   match st:
     case Ts{tk, nt, fl, fd, cov}:
       +k = nt
-      +c = code_of(29n, len, 0, U32.is_lt(len, 4), False{})
-      +d = code_of(30n, dist, 0, U32.is_lt(dist, 2), True{})
+      +l = (len - 3 : U32)
+      +lg = U32.from_nat(U32.log2(l))
+      +c = pick(U32.is_eq(len, 258), 28, pick(U32.is_lt(l, 8), l, (4 * lg - 4 + (U32.shrn(l, U32.to_nat((lg - 2 : U32))) .&. 3) : U32)))
+      +x = (dist - 1 : U32)
+      +xg = U32.from_nat(U32.log2(x))
+      +d = pick(U32.is_lt(x, 4), x, (2 * xg + (U32.shrn(x, U32.to_nat((xg - 1 : U32))) .&. 1) : U32))
       (Ts{ts_put(tk, k, tk_w0((257 + c : U32), (len - len_base(c) : U32), extra_of(False{}, c), d, extra_of(True{}, d)), (dist - dist_base(d) : U32)), (k + 1 : U32), bump(fl, (257 + c : U32)), bump(fd, d), (cov + len : U32)}, U32.is_ge((k + 1 : U32), 16384))
 
 def trev(l: List<&2, Tok>, acc: List<&2, Tok>) -> List<&2, Tok>:
@@ -910,9 +899,10 @@ def trev(l: List<&2, Tok>, acc: List<&2, Tok>) -> List<&2, Tok>:
 
 # Matcher
 # -------
-# zlib's shape: head[hash of 3 bytes] holds the last position + 1 with
-# that hash and prev[pos & 32767] the one before it, so a chain walks
-# back through the window. A level picks the knobs: chain caps the walk,
+# hd[hash of the 4 bytes at a position] holds the last position + 1 with
+# that hash and prev[pos & 32767] the one before it, so a chain walks back
+# through the window over candidates that rarely differ before their fifth
+# byte; a one-entry table on 3-byte hashes offers a match of 3 besides. A level picks the knobs: chain caps the walk,
 # nice ends it early on a long enough match, and on the lazy levels a
 # match is held back one byte to see if the next position does better
 # (lazy stops that search once the held match is long enough, good
@@ -937,7 +927,8 @@ def cf_slow(cf: Cf) -> Bool:
 # Match extension keeps one linear input handle. The old implementation forked
 # that handle for every candidate and joined it afterwards. On repetitive data,
 # all workers then contended on the input array's atomic ownership metadata.
-# Serially reading the two four-byte windows costs two more word reads per step,
+# The agreeing bytes of a step are the xor's trailing zero bytes (4 when it is
+# 0: U32.ctz answers 32). Serially reading the two four-byte windows costs two more word reads per step,
 # but leaves the shared input read-only and ownership-local to each chunk.
 type Mw is Type:
   Mw{w: Array<U32>, a: U32, b: U32, len: U32, more: Bool}
@@ -946,7 +937,7 @@ def mw_cmp(r: Array<U32> & U32, +a: U32, +b: U32, +wa: U32, +len: U32, +maxlen: 
   (w, wb2) = r
   +x = U32.xor(wa, wb2)
   +eq4 = U32.is_eq(x, 0)
-  +len2 = (len + pick(eq4, 4, (b2u(U32.is_eq((x .&. 255 : U32), 0)) + b2u(U32.is_eq((x .&. 65535 : U32), 0)) + b2u(U32.is_eq((x .&. 16777215 : U32), 0)) : U32)) : U32)
+  +len2 = (len + (U32.from_nat(U32.ctz(x)) >> 3n : U32) : U32)
   Mw{w, (a + 4 : U32), (b + 4 : U32), pick(U32.is_gt(len2, maxlen), maxlen, len2), eq4 && U32.is_lt(len2, maxlen)}
 
 def mw_b(r: Array<U32> & U32, +a: U32, +b: U32, +len: U32, +maxlen: U32) -> Mw:
@@ -972,57 +963,49 @@ def mw_fin(st: Mw) -> Array<U32> & U32:
     case Mw{w, a, b, len, more}:
       (w, len)
 
-def match_pick(w: Array<U32>, +i: U32, +dist: U32, +maxlen: U32, +x: U32, same: Bool) -> Array<U32> & U32:
-  match same:
-    case True{}:
-      +len = pick(U32.is_lt(maxlen, 4), maxlen, 4)
-      mw_fin(mw_loop(64n, Mw{w, (i + 4 : U32), (i - dist + 4 : U32), len, U32.is_gt(maxlen, 4)}, maxlen))
-    case False{}:
-      +len = (b2u(U32.is_eq((x .&. 255 : U32), 0)) + b2u(U32.is_eq((x .&. 65535 : U32), 0)) + b2u(U32.is_eq((x .&. 16777215 : U32), 0)) : U32)
-      (w, pick(U32.is_gt(len, maxlen), maxlen, len))
-
-def match_head_b(r: Array<U32> & U32, +head: U32, +i: U32, +dist: U32, +maxlen: U32) -> Array<U32> & U32:
-  (w, other) = r
-  +x = U32.xor(head, other)
-  match_pick(w, i, dist, maxlen, x, U32.is_eq(x, 0))
-
-# the length of the match at i against i - dist, at most 258 and the
-# bytes left. The current four-byte window is shared by the whole chain walk.
-def match_at_head(w: Array<U32>, +head: U32, +i: U32, +dist: U32, +n: U32) -> Array<U32> & U32:
-  +maxlen = pick(U32.is_lt((n - i : U32), 258), (n - i : U32), 258)
-  match_head_b(Words.le32_at(w, (i - dist : U32)), head, i, dist, maxlen)
-
-# the hash tables
+# the hash tables: hd holds the 4-byte chain heads (the first 32768) and
+# the one-entry 3-byte table (the last 32768); prev links the 4-byte chain
 type In is Type:
   In{w: Array<U32>, hd: Array<U32>, prev: Array<U32>}
 
-def in_hd(r: Array<U32> & U32, w: Array<U32>, prev: Array<U32>, +j: U32, +h: U32) -> In & U32:
+# the tables after an insert, the 4-byte chain's previous head and the
+# 3-byte table's previous entry (positions + 1, 0 for none)
+type Ix is Type:
+  Ix{ht: In, c4: U32, c3: U32}
+
+def ix_put4(r: Array<U32> & U32, w: Array<U32>, prev: Array<U32>, +j: U32, +h: U32, +c3: U32) -> Ix:
   (hd, cand) = r
   +c = cand
-  (In{w, Array.set(U32, hd, h, (j + 1 : U32)), Array.set(U32, prev, (j .&. 32767 : U32), c)}, c)
+  Ix{In{w, Array.set(U32, hd, h, (j + 1 : U32)), Array.set(U32, prev, (j .&. 32767 : U32), c)}, c, c3}
 
-# the hash of the three bytes at j, from one window
-def in_win(r: Array<U32> & U32, hd: Array<U32>, prev: Array<U32>, +j: U32) -> In & U32:
+def ix_put3(r: Array<U32> & U32, w: Array<U32>, prev: Array<U32>, +j: U32, +h: U32, +g: U32) -> Ix:
+  (hd, c3) = r
+  +cc = c3
+  ix_put4(Array.get(U32, Array.set(U32, hd, g, (j + 1 : U32)), h), w, prev, j, h, cc)
+
+# multiplicative hashes of the four bytes at j and of their low three
+def ix_win(r: Array<U32> & U32, hd: Array<U32>, prev: Array<U32>, +j: U32) -> Ix:
   (w, v) = r
   +vv = v
-  +h = (U32.xor(U32.xor(((vv .&. 255) << 10n : U32), (((vv >> 8n) .&. 255) << 5n : U32)), ((vv >> 16n) .&. 255 : U32)) .&. 32767 : U32)
-  in_hd(Array.get(U32, hd, h), w, prev, j, h)
+  +h = ((vv * 506832829 : U32) >> 17n : U32)
+  +g = (32768 + (((vv << 8n : U32) * 506832829 : U32) >> 17n : U32) : U32)
+  ix_put3(Array.get(U32, hd, g), w, prev, j, h, g)
 
-def ins_go(w: Array<U32>, hd: Array<U32>, prev: Array<U32>, +j: U32, ok: Bool) -> In & U32:
+def ix_go(w: Array<U32>, hd: Array<U32>, prev: Array<U32>, +j: U32, ok: Bool) -> Ix:
   match ok:
     case False{}:
-      (In{w, hd, prev}, 0)
+      Ix{In{w, hd, prev}, 0, 0}
     case True{}:
-      in_win(Words.le32_at(w, j), hd, prev, j)
+      ix_win(Words.le32_at(w, j), hd, prev, j)
 
-# position j into the tables; answers the previous head (a position + 1,
-# 0 for none), and 0 when fewer than 3 bytes remain
-def ins_at(w: Array<U32>, hd: Array<U32>, prev: Array<U32>, +j: U32, +n: U32) -> In & U32:
-  ins_go(w, hd, prev, j, U32.is_lt((j + 2 : U32), n))
+# position j into both tables; nothing when fewer than 4 bytes remain
+def ins_at(w: Array<U32>, hd: Array<U32>, prev: Array<U32>, +j: U32, +n: U32) -> Ix:
+  ix_go(w, hd, prev, j, U32.is_lt((j + 3 : U32), n))
 
-def ins_drop(r: In & U32) -> In:
-  (ht, c) = r
-  ht
+def ins_drop(r: Ix) -> In:
+  match r:
+    case Ix{ht, c4, c3}:
+      ht
 
 # positions j.. into the tables
 def ins_loop(fuel: Nat, st: In, +j: U32, +n: U32) -> In:
@@ -1032,67 +1015,100 @@ def ins_loop(fuel: Nat, st: In, +j: U32, +n: U32) -> In:
     case 1n+p, In{w, hd, prev}:
       ins_loop(p, ins_drop(ins_at(w, hd, prev, j, n)), (j + 1 : U32), n)
 
-# the chain walk: the best length and distance so far, the input byte
-# at the best length (read again only when the best changes), and the
-# candidate to try; more says it is live, in the window, and worth trying
+# the chain walk: the best length and distance so far, the four bytes at
+# i (first) and the four ending at the best length (tail; at i while the
+# best is under 4), and the candidate to try; more says it is live, in the
+# window, and worth trying. A candidate is extended only when its four
+# bytes at both places agree, so a chain on 4-byte hashes rarely extends
+# a candidate that cannot do better.
 type Ch is Type:
-  Ch{w: Array<U32>, prev: Array<U32>, head: U32, bl: U32, bd: U32, x: U32, cand: U32, more: Bool}
+  Ch{w: Array<U32>, prev: Array<U32>, first: U32, bl: U32, bd: U32, tail: U32, cand: U32, more: Bool}
 
-def ch_nx(rp: Array<U32> & U32, w: Array<U32>, +head: U32, +bl: U32, +bd: U32, +x: U32, +i: U32, +nice: U32, +left: U32) -> Ch:
+def ch_next(rp: Array<U32> & U32, w: Array<U32>, +first: U32, +bl: U32, +bd: U32, +tail: U32, +i: U32, +nice: U32, +left: U32) -> Ch:
   (prev, nxt) = rp
   +nx = nxt
-  Ch{w, prev, head, bl, bd, x, nx, U32.is_ne(nx, 0) && U32.is_le((i - (nx - 1) : U32), 32768) && U32.is_lt(bl, nice) && U32.is_gt(left, 1)}
+  Ch{w, prev, first, bl, bd, tail, nx, U32.is_ne(nx, 0) && U32.is_le((i - (nx - 1) : U32), 32768) && U32.is_lt(bl, nice) && U32.is_gt(left, 1)}
 
-def ch_x(r: Array<U32> & U32, prev: Array<U32>, +head: U32, +bl: U32, +bd: U32, +c: U32, +i: U32, +nice: U32, +left: U32) -> Ch:
-  (w, x) = r
-  ch_nx(Array.get(U32, prev, ((c - 1) .&. 32767 : U32)), w, head, bl, bd, x, i, nice, left)
+def ch_skip(w: Array<U32>, prev: Array<U32>, +first: U32, +bl: U32, +bd: U32, +tail: U32, +c: U32, +i: U32, +nice: U32, +left: U32) -> Ch:
+  ch_next(Array.get(U32, prev, ((c - 1) .&. 32767 : U32)), w, first, bl, bd, tail, i, nice, left)
 
-def ch_upd(w: Array<U32>, prev: Array<U32>, +head: U32, +l: U32, +bl: U32, +bd: U32, +c: U32, +d: U32, +i: U32, +nice: U32, +left: U32, +x: U32, better: Bool) -> Ch:
+def ch_tail(r: Array<U32> & U32, prev: Array<U32>, +first: U32, +l: U32, +d: U32, +c: U32, +i: U32, +nice: U32, +left: U32) -> Ch:
+  (w, t) = r
+  +tt = t
+  ch_skip(w, prev, first, l, d, tt, c, i, nice, left)
+
+def ch_upd(w: Array<U32>, prev: Array<U32>, +first: U32, +l: U32, +bl: U32, +bd: U32, +tail: U32, +c: U32, +d: U32, +i: U32, +nice: U32, +left: U32, better: Bool) -> Ch:
   match better:
     case True{}:
-      ch_x(Words.byte_at(w, (i + l : U32)), prev, head, l, d, c, i, nice, left)
+      ch_tail(Words.le32_at(w, (i + l - 3 : U32)), prev, first, l, d, c, i, nice, left)
     case False{}:
-      ch_nx(Array.get(U32, prev, ((c - 1) .&. 32767 : U32)), w, head, bl, bd, x, i, nice, left)
+      ch_skip(w, prev, first, bl, bd, tail, c, i, nice, left)
 
-def ch_at(r: Array<U32> & U32, prev: Array<U32>, +head: U32, +bl: U32, +bd: U32, +c: U32, +d: U32, +i: U32, +nice: U32, +left: U32, +x: U32) -> Ch:
+def ch_len(r: Array<U32> & U32, prev: Array<U32>, +first: U32, +bl: U32, +bd: U32, +tail: U32, +c: U32, +d: U32, +i: U32, +nice: U32, +left: U32) -> Ch:
   (w, len) = r
   +l = len
-  ch_upd(w, prev, head, l, bl, bd, c, d, i, nice, left, x, U32.is_gt(l, bl))
+  ch_upd(w, prev, first, l, bl, bd, tail, c, d, i, nice, left, U32.is_gt(l, bl))
 
-# a candidate whose byte at the best length differs cannot do better:
-# one compare there before the full one, as zlib does
-def ch_go(w: Array<U32>, prev: Array<U32>, +head: U32, +bl: U32, +bd: U32, +c: U32, +d: U32, +i: U32, +n: U32, +nice: U32, +left: U32, +x: U32, ok: Bool) -> Ch:
+def ch_ext(w: Array<U32>, prev: Array<U32>, +first: U32, +bl: U32, +bd: U32, +tail: U32, +c: U32, +d: U32, +i: U32, +maxlen: U32, +nice: U32, +left: U32, ok: Bool) -> Ch:
   match ok:
     case False{}:
-      ch_nx(Array.get(U32, prev, ((c - 1) .&. 32767 : U32)), w, head, bl, bd, x, i, nice, left)
+      ch_skip(w, prev, first, bl, bd, tail, c, i, nice, left)
     case True{}:
-      ch_at(match_at_head(w, head, i, d, n), prev, head, bl, bd, c, d, i, nice, left, x)
+      ch_len(mw_fin(mw_loop(64n, Mw{w, (i + 4 : U32), (c + 3 : U32), 4, U32.is_gt(maxlen, 4)}, maxlen)), prev, first, bl, bd, tail, c, d, i, nice, left)
 
-def ch_q(r: Array<U32> & U32, prev: Array<U32>, +head: U32, +bl: U32, +bd: U32, +c: U32, +d: U32, +i: U32, +n: U32, +nice: U32, +left: U32, +x: U32) -> Ch:
-  (w, y) = r
-  ch_go(w, prev, head, bl, bd, c, d, i, n, nice, left, x, U32.is_eq(x, y))
+def ch_head(r: Array<U32> & U32, prev: Array<U32>, +first: U32, +bl: U32, +bd: U32, +tail: U32, +c: U32, +d: U32, +i: U32, +maxlen: U32, +nice: U32, +left: U32) -> Ch:
+  (w, h) = r
+  ch_ext(w, prev, first, bl, bd, tail, c, d, i, maxlen, nice, left, U32.is_eq(h, first))
 
-def ch_loop(fuel: Nat, st: Ch, +i: U32, +n: U32, +nice: U32, +left: U32) -> Ch:
+def ch_tq(w: Array<U32>, prev: Array<U32>, +first: U32, +bl: U32, +bd: U32, +tail: U32, +c: U32, +d: U32, +i: U32, +maxlen: U32, +nice: U32, +left: U32, same: Bool) -> Ch:
+  match same:
+    case False{}:
+      ch_skip(w, prev, first, bl, bd, tail, c, i, nice, left)
+    case True{}:
+      ch_head(Words.le32_at(w, (c - 1 : U32)), prev, first, bl, bd, tail, c, d, i, maxlen, nice, left)
+
+def ch_tl(r: Array<U32> & U32, prev: Array<U32>, +first: U32, +bl: U32, +bd: U32, +tail: U32, +c: U32, +d: U32, +i: U32, +maxlen: U32, +nice: U32, +left: U32) -> Ch:
+  (w, t) = r
+  ch_tq(w, prev, first, bl, bd, tail, c, d, i, maxlen, nice, left, U32.is_eq(t, tail))
+
+def ch_loop(fuel: Nat, st: Ch, +i: U32, +maxlen: U32, +nice: U32, +left: U32) -> Ch:
   match fuel, st:
     case 0n, r:
       r
-    case 1n+p, Ch{w, prev, head, bl, bd, x, cand, more}:
+    case 1n+p, Ch{w, prev, first, bl, bd, tail, cand, more}:
       match more:
         case False{}:
-          Ch{w, prev, head, bl, bd, x, cand, False{}}
+          Ch{w, prev, first, bl, bd, tail, cand, False{}}
         case True{}:
           +c = cand
           +l = bl
-          ch_loop(p, ch_q(Words.byte_at(w, (c - 1 + l : U32)), prev, head, l, bd, c, (i - (c - 1) : U32), i, n, nice, left, x), i, n, nice, (left - 1 : U32))
+          +b = pick(U32.is_lt(l, 3), 3, l)
+          ch_loop(p, ch_tl(Words.le32_at(w, (c - 1 + b - 3 : U32)), prev, first, l, bd, tail, c, (i - (c - 1) : U32), i, maxlen, nice, left), i, maxlen, nice, (left - 1 : U32))
 
-def ch_start(r: Array<U32> & U32, prev: Array<U32>, +i: U32, +n: U32, +cand: U32, +chain: U32, +nice: U32, search: Bool) -> Ch:
-  (w, head) = r
-  +h = head
-  ch_loop(U32.to_nat(chain), Ch{w, prev, h, 0, 0, (h .&. 255 : U32), cand, search && U32.is_ne(cand, 0) && U32.is_le((i - (cand - 1) : U32), 32768) && U32.is_lt((i + 2 : U32), n) && U32.is_gt(chain, 0)}, i, n, nice, chain)
+# the 3-byte table's candidate makes a match of 3 when its three bytes agree
+def ch_begin(r: Array<U32> & U32, prev: Array<U32>, +first: U32, +c3: U32, +cand: U32, +i: U32, +n: U32, +chain: U32, +nice: U32) -> Ch:
+  (w, v) = r
+  +vv = v
+  +hit = U32.is_ne(c3, 0) && U32.is_le((i - (c3 - 1) : U32), 32768) && U32.is_eq((U32.xor(vv, first) .&. 16777215 : U32), 0)
+  +maxlen = pick(U32.is_lt((n - i : U32), 258), (n - i : U32), 258)
+  ch_loop(U32.to_nat(chain), Ch{w, prev, first, pick(hit, 3, 0), pick(hit, (i - (c3 - 1) : U32), 0), first, cand, U32.is_ne(cand, 0) && U32.is_le((i - (cand - 1) : U32), 32768) && U32.is_gt(chain, 0)}, i, maxlen, nice, chain)
 
-# the walk from head cand; search says it is wanted at all
-def chain(w: Array<U32>, prev: Array<U32>, +i: U32, +n: U32, +cand: U32, +chain: U32, +nice: U32, search: Bool) -> Ch:
-  ch_start(Words.le32_at(w, i), prev, i, n, cand, chain, nice, search)
+def ch_first(r: Array<U32> & U32, prev: Array<U32>, +c3: U32, +cand: U32, +i: U32, +n: U32, +chain: U32, +nice: U32) -> Ch:
+  (w, f) = r
+  +ff = f
+  ch_begin(Words.le32_at(w, pick(U32.is_eq(c3, 0), i, (c3 - 1 : U32))), prev, ff, c3, cand, i, n, chain, nice)
+
+def ch_gate(w: Array<U32>, prev: Array<U32>, +i: U32, +n: U32, +cand: U32, +c3: U32, +chain: U32, +nice: U32, go: Bool) -> Ch:
+  match go:
+    case False{}:
+      Ch{w, prev, 0, 0, 0, 0, 0, False{}}
+    case True{}:
+      ch_first(Words.le32_at(w, i), prev, c3, cand, i, n, chain, nice)
+
+# the walk from the 4-byte head cand after the 3-byte candidate c3;
+# search says it is wanted at all
+def chain(w: Array<U32>, prev: Array<U32>, +i: U32, +n: U32, +cand: U32, +c3: U32, +chain: U32, +nice: U32, search: Bool) -> Ch:
+  ch_gate(w, prev, i, n, cand, c3, chain, nice, search && U32.is_lt((i + 3 : U32), n))
 
 # a match of 3 farther than 4096 back costs more than its literals
 def too_far(+l: U32, +d: U32) -> U32:
@@ -1144,14 +1160,15 @@ def fa_found(ch: Ch, hd: Array<U32>, ts: Ts, +i: U32, +n: U32, +maxins: U32) -> 
       +cl = too_far(bl, d)
       fa_decide(w, hd, prev, ts, i, n, cl, d, maxins, U32.is_ge(cl, 3))
 
-def fa_ht(ht: In, +cand: U32, ts: Ts, +i: U32, +n: U32, +cf: Cf) -> Lz:
+def fa_ht(ht: In, +cand: U32, +c3: U32, ts: Ts, +i: U32, +n: U32, +cf: Cf) -> Lz:
   match ht, cf:
     case In{w, hd, prev}, Cf{good, lazy, nice, ch, slow}:
-      fa_found(chain(w, prev, i, n, cand, ch, nice, True{}), hd, ts, i, n, lazy)
+      fa_found(chain(w, prev, i, n, cand, c3, ch, nice, True{}), hd, ts, i, n, lazy)
 
-def fa_ins_at(r: In & U32, ts: Ts, +i: U32, +n: U32, +cf: Cf) -> Lz:
-  (ht, cand) = r
-  fa_ht(ht, cand, ts, i, n, cf)
+def fa_ins_at(r: Ix, ts: Ts, +i: U32, +n: U32, +cf: Cf) -> Lz:
+  match r:
+    case Ix{ht, c4, c3}:
+      fa_ht(ht, c4, c3, ts, i, n, cf)
 
 def fa_step(st: Lz, +cf: Cf) -> Lz:
   match st:
@@ -1195,14 +1212,15 @@ def sl_found(ch: Ch, hd: Array<U32>, ts: Ts, +i: U32, +n: U32, +pl: U32, +pd: U3
       +cl = too_far(bl, d)
       sl_decide(w, hd, prev, ts, i, n, pl, pd, cl, d, maxins, pend, U32.is_ge(pl, 3) && U32.is_le(cl, pl))
 
-def sl_ht(ht: In, +cand: U32, ts: Ts, +i: U32, +n: U32, +pl: U32, +pd: U32, pend: Bool, +cf: Cf) -> Lz:
+def sl_ht(ht: In, +cand: U32, +c3: U32, ts: Ts, +i: U32, +n: U32, +pl: U32, +pd: U32, pend: Bool, +cf: Cf) -> Lz:
   match ht, cf:
     case In{w, hd, prev}, Cf{good, lazy, nice, ch, slow}:
-      sl_found(chain(w, prev, i, n, cand, pick(U32.is_ge(pl, good), (ch >> 2n : U32), ch), nice, U32.is_lt(pl, lazy)), hd, ts, i, n, pl, pd, lazy, pend)
+      sl_found(chain(w, prev, i, n, cand, c3, pick(U32.is_ge(pl, good), (ch >> 2n : U32), ch), nice, U32.is_lt(pl, lazy)), hd, ts, i, n, pl, pd, lazy, pend)
 
-def sl_ins_at(r: In & U32, ts: Ts, +i: U32, +n: U32, +pl: U32, +pd: U32, pend: Bool, +cf: Cf) -> Lz:
-  (ht, cand) = r
-  sl_ht(ht, cand, ts, i, n, pl, pd, pend, cf)
+def sl_ins_at(r: Ix, ts: Ts, +i: U32, +n: U32, +pl: U32, +pd: U32, pend: Bool, +cf: Cf) -> Lz:
+  match r:
+    case Ix{ht, c4, c3}:
+      sl_ht(ht, c4, c3, ts, i, n, pl, pd, pend, cf)
 
 def sl_step(st: Lz, +cf: Cf) -> Lz:
   match st:
@@ -1235,123 +1253,175 @@ def lz_loop(fuel: Nat, st: Lz, +cf: Cf) -> Lz:
 
 # Huffman code lengths
 # --------------------
-# counts to code lengths of at most limit bits: a tree grows by merging
-# the two lightest live nodes (a scan each time; n is small), a leaf's
-# length is its depth, and while a length passes the limit the counts
-# are halved, rounding up, and the tree rebuilt
+# counts to code lengths of at most limit bits. The live leaves sorted by
+# (count, symbol) and the merged nodes in the order they are made are two
+# queues whose fronts are the two lightest nodes, a leaf first on a tie:
+# the tree a scan for the two lightest nodes would build, in n log n. A
+# node's depth is its parent's plus one (a parent has a larger index), and
+# while a length passes the limit the counts are halved, rounding up, and
+# the tree rebuilt.
 
-# the two lightest live nodes seen so far, 4294967295 for none
-type Sc is Type:
-  Sc{fq: Array<U32>, b1: U32, f1: U32, b2: U32, f2: U32}
+# the live leaves as count << 9 | symbol, in symbol order
+def lk_put(f0: Array<U32>, acc: List<&2, U32>, +f: U32, +i: U32, live: Bool) -> Array<U32> & List<&2, U32>:
+  match live:
+    case True{}:
+      (f0, ((f << 9n) .|. i : U32) <> acc)
+    case False{}:
+      (f0, acc)
 
-def sc_take(fq: Array<U32>, +j: U32, +f: U32, +b1: U32, +f1: U32, +b2: U32, +f2: U32, lt1: Bool, lt2: Bool) -> Sc:
-  match lt1, lt2:
-    case True{}, k:
-      Sc{fq, j, f, b1, f1}
-    case False{}, True{}:
-      Sc{fq, b1, f1, j, f}
-    case False{}, False{}:
-      Sc{fq, b1, f1, b2, f2}
-
-def sc_at(r: Array<U32> & U32, +j: U32, +b1: U32, +f1: U32, +b2: U32, +f2: U32) -> Sc:
-  (fq, f) = r
+def lk_at(r: Array<U32> & U32, acc: List<&2, U32>, +i: U32) -> Array<U32> & List<&2, U32>:
+  (f0, f) = r
   +ff = f
-  +live = U32.is_ne(ff, 0)
-  sc_take(fq, j, ff, b1, f1, b2, f2, live && U32.is_lt(ff, f1), live && U32.is_lt(ff, f2))
+  lk_put(f0, acc, ff, i, U32.is_ne(ff, 0))
 
-def sc_loop(n: Nat, st: Sc, +j: U32) -> Sc:
+def lk_loop(n: Nat, st: Array<U32> & List<&2, U32>, +i: U32) -> Array<U32> & List<&2, U32>:
   match n, st:
     case 0n, r:
       r
-    case 1n+p, Sc{fq, b1, f1, b2, f2}:
-      sc_loop(p, sc_at(Array.get(U32, fq, j), j, b1, f1, b2, f2), (j + 1 : U32))
+    case 1n+p, (f0, acc):
+      lk_loop(p, lk_at(Array.get(U32, f0, i), acc, i), (i - 1 : U32))
 
-# the tree: node counts (0 once merged), parents, the node count; more
-# says a merge happened
-type Mg is Type:
-  Mg{fq: Array<U32>, par: Array<U32>, cnt: U32, more: Bool}
+# the queues: counts by node (merged nodes from n), parents, the leaves
+# left, the front merged node qi and the node count
+type Hq is Type:
+  Hq{fq: Array<U32>, par: Array<U32>, lv: List<&2, U32>, qi: U32, cnt: U32}
 
-def mg_do(fq: Array<U32>, par: Array<U32>, +cnt: U32, +b1: U32, +f1: U32, +b2: U32, +f2: U32, ok: Bool) -> Mg:
+# a taken node and its count; 4294967295 when both queues are empty
+type Pk is Type:
+  Pk{q: Hq, node: U32, f: U32}
+
+def pk_sel(fq: Array<U32>, par: Array<U32>, +h: U32, t: List<&2, U32>, +qi: U32, +cnt: U32, +f: U32, leaf: Bool) -> Pk:
+  match leaf:
+    case True{}:
+      Pk{Hq{fq, par, t, qi, cnt}, (h .&. 511 : U32), (h >> 9n : U32)}
+    case False{}:
+      Pk{Hq{fq, par, h <> t, (qi + 1 : U32), cnt}, qi, f}
+
+def pk_cmp(r: Array<U32> & U32, par: Array<U32>, +h: U32, t: List<&2, U32>, +qi: U32, +cnt: U32) -> Pk:
+  (fq, v) = r
+  +f = v
+  pk_sel(fq, par, h, t, qi, cnt, f, U32.is_le((h >> 9n : U32), f))
+
+def pk_both(fq: Array<U32>, par: Array<U32>, +h: U32, t: List<&2, U32>, +qi: U32, +cnt: U32, q: Bool) -> Pk:
+  match q:
+    case False{}:
+      Pk{Hq{fq, par, t, qi, cnt}, (h .&. 511 : U32), (h >> 9n : U32)}
+    case True{}:
+      pk_cmp(Array.get(U32, fq, qi), par, h, t, qi, cnt)
+
+def pk_int(r: Array<U32> & U32, par: Array<U32>, +qi: U32, +cnt: U32) -> Pk:
+  (fq, v) = r
+  +f = v
+  Pk{Hq{fq, par, [], (qi + 1 : U32), cnt}, qi, f}
+
+def pk_merged(fq: Array<U32>, par: Array<U32>, +qi: U32, +cnt: U32, q: Bool) -> Pk:
+  match q:
+    case False{}:
+      Pk{Hq{fq, par, [], qi, cnt}, 4294967295, 0}
+    case True{}:
+      pk_int(Array.get(U32, fq, qi), par, qi, cnt)
+
+def pop(st: Hq) -> Pk:
+  match st:
+    case Hq{fq, par, Nil{}, qi, cnt}:
+      +q = qi
+      +c = cnt
+      pk_merged(fq, par, q, c, U32.is_lt(q, c))
+    case Hq{fq, par, Con{h, t}, qi, cnt}:
+      +hh = h
+      +q = qi
+      +c = cnt
+      pk_both(fq, par, hh, t, q, c, U32.is_lt(q, c))
+
+# merging the two taken nodes; more says there were two
+type Mq is Type:
+  Mq{q: Hq, more: Bool}
+
+def mq_do(q: Hq, +a: U32, +fa: U32, +b: U32, +fb: U32, ok: Bool) -> Mq:
+  match q, ok:
+    case r, False{}:
+      Mq{r, False{}}
+    case Hq{fq, par, lv, qi, cnt}, True{}:
+      +c = cnt
+      Mq{Hq{Array.set(U32, fq, c, (fa + fb : U32)), Array.set(U32, Array.set(U32, par, a, c), b, c), lv, qi, (c + 1 : U32)}, True{}}
+
+def mq_join(pb: Pk, +a: U32, +fa: U32) -> Mq:
+  match pb:
+    case Pk{q, b, fb}:
+      +bb = b
+      mq_do(q, a, fa, bb, fb, U32.is_ne(bb, 4294967295))
+
+def mq_go(q: Hq, +a: U32, +fa: U32, ok: Bool) -> Mq:
   match ok:
     case False{}:
-      Mg{fq, par, cnt, False{}}
+      Mq{q, False{}}
     case True{}:
-      Mg{Array.set(U32, Array.set(U32, Array.set(U32, fq, b1, 0), b2, 0), cnt, (f1 + f2 : U32)), Array.set(U32, Array.set(U32, par, b1, cnt), b2, cnt), (cnt + 1 : U32), True{}}
+      mq_join(pop(q), a, fa)
 
-def mg_apply(sc: Sc, par: Array<U32>, +cnt: U32) -> Mg:
-  match sc:
-    case Sc{fq, b1, f1, b2, f2}:
-      +bb2 = b2
-      mg_do(fq, par, cnt, b1, f1, bb2, f2, U32.is_ne(bb2, 4294967295))
+def mq_first(pa: Pk) -> Mq:
+  match pa:
+    case Pk{q, a, fa}:
+      +aa = a
+      mq_go(q, aa, fa, U32.is_ne(aa, 4294967295))
 
-def mg_step(fq: Array<U32>, par: Array<U32>, +cnt: U32) -> Mg:
-  mg_apply(sc_loop(U32.to_nat(cnt), Sc{fq, 4294967295, 4294967295, 4294967295, 4294967295}, 0), par, cnt)
-
-def mg_loop(n: Nat, st: Mg) -> Mg:
+def mq_loop(n: Nat, st: Mq) -> Mq:
   match n, st:
     case 0n, r:
       r
-    case 1n+p, Mg{fq, par, cnt, more}:
+    case 1n+p, Mq{q, more}:
       match more:
         case False{}:
-          Mg{fq, par, cnt, False{}}
+          Mq{q, False{}}
         case True{}:
-          mg_loop(p, mg_step(fq, par, cnt))
+          mq_loop(p, mq_first(pop(q)))
 
-# a leaf's depth: parents up to the root
-type Dp is Type:
-  Dp{par: Array<U32>, node: U32, depth: U32, more: Bool}
+# depths from the root down: dep[k] = dep[par[k]] + 1 for k below the root
+# (a dead leaf's entry is unused)
+type Dq is Type:
+  Dq{par: Array<U32>, dep: Array<U32>}
 
-def dp_at(r: Array<U32> & U32, +depth: U32, +root: U32) -> Dp:
+def dq_put(r: Array<U32> & U32, par: Array<U32>, +k: U32) -> Dq:
+  (dep, d) = r
+  Dq{par, Array.set(U32, dep, k, (d + 1 : U32))}
+
+def dq_par(r: Array<U32> & U32, dep: Array<U32>, +k: U32) -> Dq:
   (par, p) = r
   +pp = p
-  Dp{par, pp, (depth + 1 : U32), U32.is_ne(pp, root)}
+  dq_put(Array.get(U32, dep, pp), par, k)
 
-def dp_loop(n: Nat, st: Dp, +root: U32) -> Dp:
+def dq_loop(n: Nat, st: Dq, +k: U32) -> Dq:
   match n, st:
     case 0n, r:
       r
-    case 1n+p, Dp{par, node, depth, more}:
-      match more:
-        case False{}:
-          Dp{par, node, depth, False{}}
-        case True{}:
-          dp_loop(p, dp_at(Array.get(U32, par, node), depth, root), root)
-
-def dp_pair(st: Dp) -> Array<U32> & U32:
-  match st:
-    case Dp{par, node, depth, more}:
-      (par, depth)
-
-def depth_of(par: Array<U32>, +i: U32, +root: U32) -> Array<U32> & U32:
-  dp_pair(dp_loop(U32.to_nat(1024), Dp{par, i, 0, True{}}, root))
+    case 1n+p, Dq{par, dep}:
+      dq_loop(p, dq_par(Array.get(U32, par, k), dep, k), (k - 1 : U32))
 
 # the lengths of the live leaves and the longest
 type Ln is Type:
-  Ln{f0: Array<U32>, par: Array<U32>, lens: Array<U32>, mx: U32}
+  Ln{f0: Array<U32>, dep: Array<U32>, lens: Array<U32>, mx: U32}
 
 def ln_put(r: Array<U32> & U32, f0: Array<U32>, lens: Array<U32>, +i: U32, +mx: U32) -> Ln:
-  (par, d) = r
+  (dep, d) = r
   +dd = d
-  Ln{f0, par, Array.set(U32, lens, i, dd), pick(U32.is_gt(dd, mx), dd, mx)}
+  Ln{f0, dep, Array.set(U32, lens, i, dd), pick(U32.is_gt(dd, mx), dd, mx)}
 
-def ln_go(f0: Array<U32>, par: Array<U32>, lens: Array<U32>, +i: U32, +root: U32, +mx: U32, live: Bool) -> Ln:
+def ln_go(f0: Array<U32>, dep: Array<U32>, lens: Array<U32>, +i: U32, +mx: U32, live: Bool) -> Ln:
   match live:
     case False{}:
-      Ln{f0, par, lens, mx}
+      Ln{f0, dep, lens, mx}
     case True{}:
-      ln_put(depth_of(par, i, root), f0, lens, i, mx)
+      ln_put(Array.get(U32, dep, i), f0, lens, i, mx)
 
-def ln_at(rf: Array<U32> & U32, par: Array<U32>, lens: Array<U32>, +i: U32, +root: U32, +mx: U32) -> Ln:
+def ln_at(rf: Array<U32> & U32, dep: Array<U32>, lens: Array<U32>, +i: U32, +mx: U32) -> Ln:
   (f0, f) = rf
-  ln_go(f0, par, lens, i, root, mx, U32.is_ne(f, 0))
+  ln_go(f0, dep, lens, i, mx, U32.is_ne(f, 0))
 
-def ln_loop(n: Nat, st: Ln, +i: U32, +root: U32) -> Ln:
+def ln_loop(n: Nat, st: Ln, +i: U32) -> Ln:
   match n, st:
     case 0n, r:
       r
-    case 1n+p, Ln{f0, par, lens, mx}:
-      ln_loop(p, ln_at(Array.get(U32, f0, i), par, lens, i, root, mx), (i + 1 : U32), root)
+    case 1n+p, Ln{f0, dep, lens, mx}:
+      ln_loop(p, ln_at(Array.get(U32, f0, i), dep, lens, i, mx), (i + 1 : U32))
 
 # one build; over says a length passed the limit
 type Hc is Type:
@@ -1359,23 +1429,33 @@ type Hc is Type:
 
 def hc_of(ln: Ln, +limit: U32) -> Hc:
   match ln:
-    case Ln{f0, par, lens, mx}:
+    case Ln{f0, dep, lens, mx}:
       +m = mx
       Hc{f0, lens, m, U32.is_gt(m, limit)}
 
-def hc_ln(mg: Mg, f0: Array<U32>, +n: U32, +limit: U32) -> Hc:
-  match mg:
-    case Mg{fq, par, cnt, more}:
-      hc_of(ln_loop(U32.to_nat(n), Ln{f0, par, Array.new(U32, 9n, 0), 0}, 0, (cnt - 1 : U32)), limit)
+def hc_dq(dq: Dq, f0: Array<U32>, +n: U32, +limit: U32) -> Hc:
+  match dq:
+    case Dq{par, dep}:
+      hc_of(ln_loop(U32.to_nat(n), Ln{f0, dep, Array.new(U32, 9n, 0), 0}, 0), limit)
+
+def hc_mq(mq: Mq, f0: Array<U32>, +n: U32, +limit: U32) -> Hc:
+  match mq:
+    case Mq{Hq{fq, par, lv, qi, cnt}, more}:
+      +root = (cnt - 1 : U32)
+      hc_dq(dq_loop(U32.to_nat(root), Dq{par, Array.new(U32, 10n, 0)}, (root - 1 : U32)), f0, n, limit)
 
 def gr_pair(st: Words.Gr) -> Array<U32> & Array<U32>:
   match st:
     case Words.Gr{src, dst}:
       (src, dst)
 
+def hc_lk(r: Array<U32> & List<&2, U32>, fq: Array<U32>, +n: U32, +limit: U32) -> Hc:
+  (f0, lv) = r
+  hc_mq(mq_loop(U32.to_nat(n), Mq{Hq{fq, Array.new(U32, 10n, 0), List.sort(~U32, ~U32.is_le, lv), n, n}, True{}}), f0, n, limit)
+
 def hc_mg(r: Array<U32> & Array<U32>, +n: U32, +limit: U32) -> Hc:
   (f0, fq) = r
-  hc_ln(mg_loop(U32.to_nat(n), Mg{fq, Array.new(U32, 10n, 0), n, True{}}), f0, n, limit)
+  hc_lk(lk_loop(U32.to_nat(n), (f0, []), (n - 1 : U32)), fq, n, limit)
 
 def hc_once(f0: Array<U32>, +n: U32, +limit: U32) -> Hc:
   hc_mg(gr_pair(Words.gr_loop(U32.to_nat(n), Words.Gr{f0, Array.new(U32, 10n, 0)}, 0)), n, limit)
@@ -1461,7 +1541,8 @@ def nx_loop(n: Nat, st: Nx & U32, +l: U32) -> Nx:
     case 1n+p, (Nx{cnt, next}, code):
       nx_loop(p, nx_at(Array.get(U32, cnt, l), next, l, code), (l + 1 : U32))
 
-# codes[i] = next[len[i]]++ for live symbols
+# codes[i] = next[len[i]]++ for live symbols, stored bit-reversed: a
+# Huffman code goes most significant bit first
 type Cc is Type:
   Cc{lens: Array<U32>, next: Array<U32>, codes: Array<U32>}
 
@@ -1472,7 +1553,7 @@ def cc_skip(lens: Array<U32>, codes: Array<U32>, ro: Array<U32> & U32) -> Cc:
 def cc_do(lens: Array<U32>, +l: U32, +i: U32, codes: Array<U32>, ro: Array<U32> & U32) -> Cc:
   (next, o) = ro
   +oo = o
-  Cc{lens, Array.set(U32, next, l, (oo + 1 : U32)), Array.set(U32, codes, i, oo)}
+  Cc{lens, Array.set(U32, next, l, (oo + 1 : U32)), Array.set(U32, codes, i, rev_bits(U32.to_nat(l), oo, 0))}
 
 def cc_put(lens: Array<U32>, +l: U32, +i: U32, codes: Array<U32>, ro: Array<U32> & U32, live: Bool) -> Cc:
   match live:
@@ -1521,7 +1602,7 @@ type Ew is Type:
 
 def tb_put(r: Array<U32> & U32, lens: Array<U32>, bw: Bw, +l: U32) -> Ew:
   (codes, c) = r
-  Ew{bw_code(bw, c, l), Tb{lens, codes}}
+  Ew{bw_put(bw, c, l), Tb{lens, codes}}
 
 def tb_at(r: Array<U32> & U32, codes: Array<U32>, bw: Bw, +sym: U32) -> Ew:
   (lens, l) = r
@@ -2088,7 +2169,7 @@ def ck_run_at(a: Array<U32>, +start: U32, +n: U32, +d: U32, last: Bool, +cf: Cf)
   +ss = start
   +dd = d
   +nn = n
-  ck_go(ins_loop(U32.to_nat(dd), In{a, Array.new(U32, 15n, 0), Array.new(U32, 15n, 0)}, (ss - dd : U32), nn), ss, nn, cf, last)
+  ck_go(ins_loop(U32.to_nat(dd), In{a, Array.new(U32, 16n, 0), Array.new(U32, 15n, 0)}, (ss - dd : U32), nn), ss, nn, cf, last)
 
 def ck_run(ck: Ck, +cf: Cf) -> Words.Sink:
   match ck:

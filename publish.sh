@@ -14,9 +14,9 @@ HUB=${BEND_HUB:-https://hub.bend-lang.com}
 for pkg in text-scan:scan:0.1.0.1 byte-words:words:0.1.0.0 \
   crc32:crc32:0.1.0.0 raylib:raylib:0.1.0.0 bendquest:kernel:0.1.0.0 \
   xml-doc:xml:0.1.0.1 bytes:bytes:0.1.0.1 image:image:0.1.0.1 \
-  coverage:cover:0.1.0.1 deflate:deflate:0.1.0.0 ustar:ustar:0.1.0.0 \
+  coverage:cover:0.1.0.1 deflate:deflate:0.1.0.1 ustar:ustar:0.1.0.0 \
   css-style:css:0.1.0.1 png-decode:png:0.1.0.1 jpeg-decode:jpeg:0.1.0.1 \
-  truetype:font:0.1.0.1 gzip-frame:gzip:0.1.0.0 svg-render:svg:0.1.0.1 \
+  truetype:font:0.1.0.1 gzip-frame:gzip:0.1.0.1 svg-render:svg:0.1.0.1 \
   http-core:http:0.1.0.0 http-server:server:0.1.0.0; do
   dir=${pkg%%:*}
   file=${pkg#*:}

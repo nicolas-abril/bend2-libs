@@ -3,7 +3,7 @@
 The RFC 1952 gzip container around `gralha-deflate`.
 
 ```python
-import gralha-gzip-frame@0.1.0.0/gzip.bend as Gzip
+import gralha-gzip-frame@0.1.0.1/gzip.bend as Gzip
 ```
 
 - `is_gzip(a)`: whether a packed array starts with the 1f 8b magic.
